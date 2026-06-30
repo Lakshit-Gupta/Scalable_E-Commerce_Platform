@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  OWASP Dependency-Check suppressions (v0.0.5).
+  Add a <suppress> entry per accepted finding / false positive. Always include a note
+  explaining WHY it's suppressed and prefer an <expiry> so suppressions get re-reviewed.
+
+  Example:
+    <suppress until="2026-12-31Z">
+      <notes>False positive: CVE applies to the server, we ship the client only.</notes>
+      <cve>CVE-2024-XXXXX</cve>
+    </suppress>
+-->
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+</suppressions>

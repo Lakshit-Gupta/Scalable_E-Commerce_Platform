@@ -1,0 +1,32 @@
+name: Load test (k6)
+
+# v0.0.6: MANUAL only (workflow_dispatch) — boots the full stack and runs the k6 smoke scenario.
+# Deliberately NOT on push/PR: a full compose boot is heavy/slow and must never gate normal CI.
+# For the heavier ramping scenario, run locally: k6/run.sh load
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  k6:
+    name: Boot stack + k6 smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start stack
+        run: docker compose up --build -d --wait
+      - name: Run k6 smoke
+        run: |
+          docker run --rm -i --network host \
+            -e BASE_URL=http://localhost:8080 \
+            -v "$PWD/k6:/scripts" \
+            grafana/k6 run /scripts/smoke.js
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail=200
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

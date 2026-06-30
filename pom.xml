@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      Aggregator (reactor) pom — convenience for building/verifying everything at once:
+        mvn -DskipTests package
+      Each module inherits from spring-boot-starter-parent directly (NOT this pom). The 'common'
+      library is a reactor module; services depend on it and build it on demand via the reactor
+      (mvn -pl services/<svc> -am). Their Docker builds use the repo root as context (see compose).
+    -->
+    <groupId>com.ecommerce</groupId>
+    <artifactId>ecommerce-platform</artifactId>
+    <version>0.1.0</version>
+    <packaging>pom</packaging>
+    <name>Scalable E-Commerce Platform</name>
+
+    <properties>
+        <!-- OWASP Dependency-Check (v0.0.5). Only used by the 'security' profile below. -->
+        <dependency-check.version>10.0.4</dependency-check.version>
+    </properties>
+
+    <modules>
+        <!-- Shared modules first so a full reactor build resolves them before services. -->
+        <module>common</module>
+        <module>proto</module>
+        <module>infrastructure/config-server</module>
+        <module>infrastructure/eureka-server</module>
+        <module>infrastructure/api-gateway</module>
+        <module>services/user-service</module>
+        <module>services/product-service</module>
+        <module>services/cart-service</module>
+        <module>services/order-service</module>
+        <module>services/payment-service</module>
+        <module>services/notification-service</module>
+        <module>services/recommendation-service</module>
+    </modules>
+
+    <!--
+      Supply-chain scanning (v0.0.5). OFF by default → normal builds are completely unaffected.
+      Run:  mvn -Psecurity -DskipTests org.owasp:dependency-check-maven:aggregate
+      CI passes the NVD key:  -DnvdApiKey=$NVD_API_KEY   (see .github/workflows/ci.yml).
+      Non-blocking for now: report-only (failBuildOnCVSS=11 = never fail), failOnError=false.
+      Tighten failBuildOnCVSS (e.g. 7) once the baseline is triaged in owasp-suppressions.xml.
+    -->
+    <profiles>
+        <profile>
+            <id>security</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.owasp</groupId>
+                        <artifactId>dependency-check-maven</artifactId>
+                        <version>${dependency-check.version}</version>
+                        <configuration>
+                            <failBuildOnCVSS>11</failBuildOnCVSS>
+                            <failOnError>false</failOnError>
+                            <formats>
+                                <format>HTML</format>
+                                <format>JSON</format>
+                            </formats>
+                            <suppressionFiles>
+                                <suppressionFile>${maven.multiModuleProjectDirectory}/owasp-suppressions.xml</suppressionFile>
+                            </suppressionFiles>
+                            <!-- We have no .NET/Node assets; disabling these analyzers speeds the scan. -->
+                            <assemblyAnalyzerEnabled>false</assemblyAnalyzerEnabled>
+                            <nodeAnalyzerEnabled>false</nodeAnalyzerEnabled>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

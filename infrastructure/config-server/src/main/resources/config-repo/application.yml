@@ -1,0 +1,18 @@
+# Shared config served by Config Server to every service that does
+# `spring.config.import: optional:configserver:...`. Services are also
+# self-sufficient locally; this demonstrates centralized override + /actuator/refresh.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,refresh
+  # Distributed tracing (v0.0.7): export spans via OTLP to Jaeger. Sample everything in dev.
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_TRACING_ENDPOINT:http://jaeger:4318/v1/traces}
+info:
+  platform: scalable-ecommerce
+  managedBy: config-server

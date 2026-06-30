@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.ecommerce.grpc.payment";
+option java_outer_classname = "PaymentProto";
+
+package payment;
+
+// Internal payment RPCs called by order-service over gRPC (replaces the old Feign/REST client).
+service PaymentService {
+  rpc Charge (ChargeRequest) returns (ChargeResponse);
+  rpc GetStatus (StatusRequest) returns (StatusResponse);
+}
+
+message ChargeRequest {
+  string order_id = 1;
+  string user_id = 2;
+  string amount = 3;   // decimal as string — avoids float precision loss
+}
+
+message ChargeResponse {
+  string payment_id = 1;
+  string status = 2;   // SUCCESS | FAILED | PENDING
+}
+
+message StatusRequest {
+  string payment_id = 1;
+}
+
+message StatusResponse {
+  string status = 1;   // SUCCESS | FAILED | PENDING | UNKNOWN
+}

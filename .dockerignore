@@ -1,0 +1,15 @@
+# Keep the build context lean — service images use the repo root as context (reactor build).
+**/target
+.git
+.github
+owasp-suppressions.xml
+.gitignore
+*.md
+docs
+observability
+db
+.env
+**/*.log
+.idea
+.vscode
+k6

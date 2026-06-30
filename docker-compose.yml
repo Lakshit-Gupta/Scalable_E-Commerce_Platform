@@ -1,0 +1,395 @@
+# Scalable E-Commerce Platform — full local stack.
+# Startup is health-gated: datastores -> config-server -> eureka -> services -> gateway -> observability.
+# Run:  docker compose up --build
+# Scale a service:  docker compose up --scale user-service=2
+
+networks:
+  ecommerce-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
+  elasticsearch-data:
+  kafka-data:
+  minio-data:
+
+services:
+
+  # ==================== Data infrastructure ====================
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ecommerce
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d   # creates users_db/products_db/orders_db/payments_db
+    ports:
+      - "5432:5432"
+    networks:
+      - ecommerce-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecommerce"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - ecommerce-network
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ecommerce
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # Management UI
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - ecommerce-network
+
+  # Kafka event streaming (v0.0.11): single-node KRaft (no ZooKeeper). Reachable at kafka:9092.
+  kafka:
+    image: apache/kafka:3.8.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+    networks:
+      - ecommerce-network
+
+  elasticsearch:
+    image: elasticsearch:8.13.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - ecommerce-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 60s
+
+  # Object storage (v0.0.13): S3-compatible. Local stand-in for Cloudflare R2. API :9000, console :9001.
+  minio:
+    image: minio/minio:RELEASE.2024-09-22T00-33-43Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY:-minioadmin}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - ecommerce-network
+
+  # ==================== Spring Cloud infrastructure ====================
+
+  config-server:
+    build: ./infrastructure/config-server
+    ports:
+      - "8888:8888"
+    networks:
+      - ecommerce-network
+    healthcheck:
+      # alpine JRE image has no curl — use busybox wget
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8888/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 40s
+
+  eureka-server:
+    build: ./infrastructure/eureka-server
+    depends_on:
+      config-server:
+        condition: service_healthy
+    ports:
+      - "8761:8761"
+    networks:
+      - ecommerce-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8761/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 40s
+
+  api-gateway:
+    build: ./infrastructure/api-gateway
+    depends_on:
+      eureka-server:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      keycloak:
+        condition: service_started   # JWKS reachable for token validation
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    ports:
+      - "8080:8080"   # only port exposed to clients
+    networks:
+      - ecommerce-network
+
+  # Identity provider (v0.0.9): OIDC/OAuth2. Realm 'ecommerce' imported on start.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_HOSTNAME_STRICT: "false"
+    volumes:
+      - ./infrastructure/keycloak/realm-ecommerce.json:/opt/keycloak/data/import/realm-ecommerce.json:ro
+    ports:
+      - "8081:8080"   # Keycloak admin console + token/JWKS endpoints
+    networks:
+      - ecommerce-network
+
+  # ==================== Microservices ====================
+
+  user-service:
+    build:
+      context: .                            # repo root: reactor builds :common then this service
+      dockerfile: services/user-service/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
+    networks:
+      - ecommerce-network
+
+  product-service:
+    build:
+      context: .
+      dockerfile: services/product-service/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      eureka-server:
+        condition: service_started
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+    networks:
+      - ecommerce-network
+
+  cart-service:
+    build:
+      context: .
+      dockerfile: services/cart-service/Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks:
+      - ecommerce-network
+
+  order-service:
+    build:
+      context: .
+      dockerfile: services/order-service/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      eureka-server:
+        condition: service_started
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+    networks:
+      - ecommerce-network
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: services/payment-service/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      eureka-server:
+        condition: service_started
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD}
+      # Provider selection (v0.0.15): stripe (default) | razorpay | stub. Falls back to stub if keys absent.
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-stripe}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+    networks:
+      - ecommerce-network
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification-service/Dockerfile
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      eureka-server:
+        condition: service_started
+    environment:
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      # Transactional email (v0.0.8). Unset -> notification-service logs instead of sending.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM: ${RESEND_FROM:-orders@example.com}
+      # Product analytics (v0.0.17). Unset -> capture is a no-op.
+      POSTHOG_API_KEY: ${POSTHOG_API_KEY:-}
+      POSTHOG_HOST: ${POSTHOG_HOST:-https://us.i.posthog.com}
+    networks:
+      - ecommerce-network
+
+  # Recommendations (v0.0.12): consumes the Kafka order-event stream, serves trending + co-purchase.
+  recommendation-service:
+    build:
+      context: .
+      dockerfile: services/recommendation-service/Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      eureka-server:
+        condition: service_started
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks:
+      - ecommerce-network
+
+  # ==================== Observability ====================
+
+  # Distributed tracing backend (v0.0.7): receives OTLP spans, serves the trace UI.
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"   # accept OTLP on 4317 (gRPC) / 4318 (HTTP)
+    ports:
+      - "16686:16686"   # Jaeger UI
+    networks:
+      - ecommerce-network
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - ecommerce-network
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    depends_on:
+      - prometheus
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+    networks:
+      - ecommerce-network
+
+  # ==================== Frontend ====================
+
+  # Svelte 5 + SvelteKit storefront (v0.0.16). SSR/BFF: server load functions call the gateway.
+  storefront:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      api-gateway:
+        condition: service_started
+      keycloak:
+        condition: service_started
+    ports:
+      - "3000:3000"
+    environment:
+      GATEWAY_URL: http://api-gateway:8080   # server-to-server (BFF); browser never hits the gateway directly
+      # adapter-node public origin (v0.1.0): required for SvelteKit form-action CSRF behind a proxy/CDN.
+      # In prod set this to the public storefront URL (e.g. https://shop.example.com via Cloudflare).
+      ORIGIN: ${STOREFRONT_ORIGIN:-http://localhost:3000}
+      # Auth (v0.1.0): server-to-server Keycloak password-grant login; token stored in an httpOnly cookie.
+      KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/ecommerce/protocol/openid-connect/token
+      KEYCLOAK_CLIENT_ID: ecommerce-app
+      PORT: "3000"
+      # Product analytics (v0.0.17), client-side. Unset -> PostHog is not initialised.
+      PUBLIC_POSTHOG_KEY: ${PUBLIC_POSTHOG_KEY:-}
+      PUBLIC_POSTHOG_HOST: ${PUBLIC_POSTHOG_HOST:-https://us.i.posthog.com}
+      # Live-chat support (v0.0.18), client-side. Both unset -> Chatwoot widget is not loaded.
+      PUBLIC_CHATWOOT_BASE_URL: ${PUBLIC_CHATWOOT_BASE_URL:-}
+      PUBLIC_CHATWOOT_WEBSITE_TOKEN: ${PUBLIC_CHATWOOT_WEBSITE_TOKEN:-}
+    networks:
+      - ecommerce-network

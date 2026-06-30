@@ -1,0 +1,158 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  # Edge auth (v0.0.9): validate Keycloak access tokens against the realm JWKS (signature + exp).
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${KEYCLOAK_JWKS_URI:http://keycloak:8080/realms/ecommerce/protocol/openid-connect/certs}
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: 6379
+      password: ${REDIS_PASSWORD:}
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: false
+      routes:
+        # Public auth endpoints (login/register) — no JWT required
+        - id: auth-public
+          uri: lb://USER-SERVICE
+          predicates:
+            - Path=/api/auth/**
+          filters:
+            - StripPrefix=1
+
+        - id: user-service
+          uri: lb://USER-SERVICE          # lb:// = load balanced via Eureka
+          predicates:
+            - Path=/api/users/**
+          filters:
+            - StripPrefix=1               # removes /api before forwarding (auth now via Spring Security resource server)
+
+        - id: product-service
+          uri: lb://PRODUCT-SERVICE
+          predicates:
+            - Path=/api/products/**
+          filters:
+            - StripPrefix=1
+            - name: RequestRateLimiter
+              args:
+                redis-rate-limiter.replenishRate: 100
+                redis-rate-limiter.burstCapacity: 200
+                redis-rate-limiter.requestedTokens: 1
+                key-resolver: "#{@userKeyResolver}"
+                deny-empty-key: false
+
+        - id: cart-service
+          uri: lb://CART-SERVICE
+          predicates:
+            - Path=/api/cart/**
+          filters:
+            - StripPrefix=1
+
+        - id: order-service
+          uri: lb://ORDER-SERVICE
+          predicates:
+            - Path=/api/orders/**
+          filters:
+            - StripPrefix=1
+
+        # Public read API (v0.0.12): trending + frequently-bought-together
+        - id: recommendation-service
+          uri: lb://RECOMMENDATION-SERVICE
+          predicates:
+            - Path=/api/recommendations/**
+          filters:
+            - StripPrefix=1
+
+        # Stripe webhook (v0.0.14): public, authenticity via HMAC signature (no JWT).
+        - id: payment-webhooks
+          uri: lb://PAYMENT-SERVICE
+          predicates:
+            - Path=/api/payments/webhooks/**
+          filters:
+            - StripPrefix=1
+
+        # --- Aggregated API docs (v0.0.4): public, no JWT. /aggregate/<svc>/v3/api-docs -> svc /v3/api-docs ---
+        - id: user-service-docs
+          uri: lb://USER-SERVICE
+          predicates:
+            - Path=/aggregate/user-service/v3/api-docs
+          filters:
+            - RewritePath=/aggregate/user-service/v3/api-docs, /v3/api-docs
+        - id: product-service-docs
+          uri: lb://PRODUCT-SERVICE
+          predicates:
+            - Path=/aggregate/product-service/v3/api-docs
+          filters:
+            - RewritePath=/aggregate/product-service/v3/api-docs, /v3/api-docs
+        - id: cart-service-docs
+          uri: lb://CART-SERVICE
+          predicates:
+            - Path=/aggregate/cart-service/v3/api-docs
+          filters:
+            - RewritePath=/aggregate/cart-service/v3/api-docs, /v3/api-docs
+        - id: order-service-docs
+          uri: lb://ORDER-SERVICE
+          predicates:
+            - Path=/aggregate/order-service/v3/api-docs
+          filters:
+            - RewritePath=/aggregate/order-service/v3/api-docs, /v3/api-docs
+        - id: payment-service-docs
+          uri: lb://PAYMENT-SERVICE
+          predicates:
+            - Path=/aggregate/payment-service/v3/api-docs
+          filters:
+            - RewritePath=/aggregate/payment-service/v3/api-docs, /v3/api-docs
+        - id: recommendation-service-docs
+          uri: lb://RECOMMENDATION-SERVICE
+          predicates:
+            - Path=/aggregate/recommendation-service/v3/api-docs
+          filters:
+            - RewritePath=/aggregate/recommendation-service/v3/api-docs, /v3/api-docs
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://eureka-server:8761/eureka/
+  instance:
+    prefer-ip-address: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,gateway
+  # Distributed tracing (v0.0.7): edge spans + traceparent propagated downstream; OTLP -> Jaeger.
+  tracing:
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTLP_TRACING_ENDPOINT:http://jaeger:4318/v1/traces}
+
+# Aggregated Swagger UI (v0.0.4): one UI at the edge, dropdown per service.
+# Each url resolves through the public /aggregate/<svc>/v3/api-docs routes above.
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    urls:
+      - name: user-service
+        url: /aggregate/user-service/v3/api-docs
+      - name: product-service
+        url: /aggregate/product-service/v3/api-docs
+      - name: cart-service
+        url: /aggregate/cart-service/v3/api-docs
+      - name: order-service
+        url: /aggregate/order-service/v3/api-docs
+      - name: payment-service
+        url: /aggregate/payment-service/v3/api-docs
+      - name: recommendation-service
+        url: /aggregate/recommendation-service/v3/api-docs
