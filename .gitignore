@@ -20,3 +20,18 @@ build/
 # Logs / OS
 *.log
 .DS_Store
+
+# Internal / working docs — not for the public repo
+TODO.md
+TODO*.md
+NOTES.md
+NOTES*.md
+SCRATCH*.md
+CLAUDE.md
+CLAUDE*.md
+*.original.md
+.claude/
+AGENTS.md
+GEMINI.md
+.plan/
+docs/internal/
