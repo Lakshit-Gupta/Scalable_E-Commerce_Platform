@@ -27,15 +27,20 @@ public class OrderEventsConsumer {
     public void onOrderEvent(String payload) {
         try {
             JsonNode node = objectMapper.readTree(payload);
+            // Apicurio ExtJsonConverter wraps the event as {"schemaId":N,"payload":{...}}; the plain
+            // outbox poller emits it at root. Unwrap when the envelope is present.
+            JsonNode event = node.has("payload") ? node.get("payload") : node;
+            String userId = event.path("userId").asText(null);
             List<String> productIds = new ArrayList<>();
-            JsonNode ids = node.get("productIds");
+            JsonNode ids = event.get("productIds");
             if (ids != null && ids.isArray()) {
                 ids.forEach(n -> productIds.add(n.asText()));
             }
-            recommendationService.recordPurchase(productIds);
-            log.info("[reco] processed order {} ({} products)", node.path("orderId").asText(), productIds.size());
-        } catch (Exception e) {
-            log.warn("[reco] skipping unparseable order event: {}", e.getMessage());
+            recommendationService.recordPurchase(userId, productIds);
+            log.info("[reco] processed order {} ({} products) user={}", event.path("orderId").asText(), productIds.size(), userId);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            log.error("[reco] unparseable order event, routing to DLT: {}", e.getMessage());
+            throw new IllegalArgumentException("Unparseable order event payload", e);
         }
     }
 }

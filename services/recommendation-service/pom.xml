@@ -13,7 +13,7 @@
 
     <groupId>com.ecommerce</groupId>
     <artifactId>recommendation-service</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.6</version>
     <name>recommendation-service</name>
 
     <properties>
@@ -26,7 +26,7 @@
         <dependency>
             <groupId>com.ecommerce</groupId>
             <artifactId>common</artifactId>
-            <version>0.1.0</version>
+            <version>0.1.6</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -36,6 +36,24 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <!-- PostgreSQL: user purchase history for Phase 2 personalized recommendations. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
         <!-- Kafka: consumes the order-events stream. -->
         <dependency>

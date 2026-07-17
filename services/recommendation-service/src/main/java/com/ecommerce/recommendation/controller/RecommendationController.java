@@ -34,4 +34,15 @@ public class RecommendationController {
                                                  @RequestParam(defaultValue = "10") int limit) {
         return recommendationService.frequentlyBoughtTogether(productId, limit);
     }
+
+    /**
+     * Phase 2: personalized recommendations for a user based on their purchase history.
+     * Uses item-based collaborative filtering over co-purchase aggregates.
+     * Falls back to trending for cold-start (no history).
+     */
+    @GetMapping("/for-you/{userId}")
+    public List<Scored> personalizedFor(@PathVariable String userId,
+                                        @RequestParam(defaultValue = "10") int limit) {
+        return recommendationService.personalizedFor(userId, limit);
+    }
 }
