@@ -1,5 +1,6 @@
 package com.ecommerce.notification.consumer;
 
+import com.ecommerce.notification.service.TwilioSmsService;
 import com.rabbitmq.client.Channel;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +19,7 @@ import java.util.UUID;
 public class OrderEventConsumer {
 
     private final EmailService emailService;
+    private final TwilioSmsService smsService;
 
     @RabbitListener(queues = "notification.queue")
     public void handleOrderPlaced(
@@ -27,12 +29,16 @@ public class OrderEventConsumer {
     ) throws IOException {
         try {
             log.info("Processing order notification: {}", event.getOrderId());
-            
+
             emailService.sendOrderConfirmation(
-                event.getUserId(), 
+                event.getUserId(),
                 event.getOrderId()
             );
-            
+
+            // SMS is best-effort and self-contained (never throws) — sent after the email so an SMS
+            // failure can't block the email/ack path or trigger a requeue (v0.1.3).
+            smsService.sendOrderConfirmation(event.getUserId(), event.getOrderId());
+
             // Manually acknowledge — message removed from queue
             channel.basicAck(deliveryTag, false);
             

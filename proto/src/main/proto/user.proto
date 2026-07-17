@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.ecommerce.grpc.user";
+option java_outer_classname = "UserProto";
+
+package user;
+
+// Internal user-service RPC called by notification-service to resolve recipient contact
+// details (email for Resend, phone for Twilio SMS) by Keycloak subject.
+service UserService {
+  rpc GetEmail (GetEmailRequest) returns (GetEmailResponse);
+}
+
+message GetEmailRequest {
+  string keycloak_id = 1;
+}
+
+message GetEmailResponse {
+  string email = 1;
+  bool found = 2;
+  string phone = 3;   // E.164 phone for SMS (v0.1.3); empty when unset
+}
