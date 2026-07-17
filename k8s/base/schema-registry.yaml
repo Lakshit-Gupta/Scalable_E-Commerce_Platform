@@ -1,0 +1,37 @@
+# Apicurio Schema Registry (v0.1.12) — governs the order-events JSON Schema. Debezium's Apicurio
+# JSON-Schema converter auto-registers the order.placed schema and the registry enforces BACKWARD
+# compatibility on new versions, so an incompatible payload change fails at register time instead of
+# silently breaking consumers. In-memory storage (dev); use the SQL/Kafka storage variant in prod.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apicurio-registry
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: apicurio-registry }
+  template:
+    metadata:
+      labels: { app: apicurio-registry }
+    spec:
+      containers:
+        - name: apicurio-registry
+          image: apicurio/apicurio-registry-mem:2.6.2.Final
+          env:
+            - { name: REGISTRY_RULES_GLOBAL_COMPATIBILITY, value: "BACKWARD" }   # default compat rule
+          ports: [{ containerPort: 8080 }]
+          readinessProbe:
+            httpGet: { path: /apis/registry/v2/system/info, port: 8080 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { memory: "512Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: apicurio-registry
+spec:
+  selector: { app: apicurio-registry }
+  ports: [{ port: 8080, targetPort: 8080 }]
