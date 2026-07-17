@@ -8,7 +8,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -45,14 +44,6 @@ public class UserController {
         }
         userRepository.save(user);
         return toProfile(user);
-    }
-
-    /** Internal service-to-service endpoint: resolve email by Keycloak subject. Not exposed via gateway. */
-    @GetMapping("/internal/{keycloakId}/email")
-    public ResponseEntity<String> emailByKeycloakId(@PathVariable String keycloakId) {
-        return userRepository.findByKeycloakId(keycloakId)
-            .<ResponseEntity<String>>map(u -> ResponseEntity.ok(u.getEmail()))
-            .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     private ResponseEntity<?> toProfile(User user) {
