@@ -1,0 +1,91 @@
+# Postgres HA (v0.1.14) via the CloudNativePG operator — replaces the single postgres Deployment.
+# 1 primary + 2 replicas with automatic failover, a PgBouncer Pooler named `postgres` (so app
+# DB_HOST=postgres is unchanged), per-service databases created at bootstrap, wal_level=logical for
+# Debezium CDC, and daily base backups + WAL archiving to MinIO.
+#
+# PREREQ: install the CNPG operator/CRDs, e.g.
+#   kubectl apply --server-side -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.26/releases/cnpg-1.26.0.yaml
+# and ensure a `pg-backups` bucket exists in MinIO. Without the CRDs, `kubectl apply -k` errors on the
+# Cluster/Pooler/ScheduledBackup (expected). compose stays single-node (dev doesn't need HA).
+---
+# App role credentials for CNPG (basic-auth). ponytail: password duplicates app-secrets DB_PASSWORD —
+# both are the dev value; in prod both come from Vault. Keep them in sync.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: pg-app-cred
+type: kubernetes.io/basic-auth
+stringData:
+  username: ecommerce
+  password: ecommerce-dev-pass
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg
+spec:
+  instances: 3                     # 1 primary + 2 replicas; CNPG handles failover
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  storage:
+    size: 5Gi
+  postgresql:
+    parameters:
+      wal_level: "logical"         # required for Debezium CDC (order outbox)
+      # headroom for HPA scale-out (~16 DB-using pods × 5-conn Hikari pools + poolers + CDC);
+      # at the default 100, scale-out pods crash-looped at boot unable to get a connection
+      max_connections: "300"
+  bootstrap:
+    initdb:
+      database: app                # placeholder owner db; real DBs created below
+      owner: ecommerce
+      secret:
+        name: pg-app-cred
+      postInitSQL:
+        - ALTER ROLE ecommerce WITH REPLICATION;   # Debezium CDC needs a WAL sender (logical replication)
+        - CREATE DATABASE users_db OWNER ecommerce;
+        - CREATE DATABASE products_db OWNER ecommerce;
+        - CREATE DATABASE orders_db OWNER ecommerce;
+        - CREATE DATABASE payments_db OWNER ecommerce;
+        - CREATE DATABASE recommendations_db OWNER ecommerce;
+        - CREATE DATABASE cms_db OWNER ecommerce;
+  backup:
+    barmanObjectStore:
+      destinationPath: "s3://pg-backups/"
+      endpointURL: "http://minio:9000"
+      s3Credentials:
+        accessKeyId:
+          name: app-secrets
+          key: STORAGE_ACCESS_KEY
+        secretAccessKey:
+          name: app-secrets
+          key: STORAGE_SECRET_KEY
+    retentionPolicy: "7d"
+---
+# PgBouncer in front of the primary. Named `postgres` so the Service it creates is `postgres` — apps'
+# DB_HOST is unchanged. Session pool mode = safe for JPA/Hibernate. (Debezium bypasses this and hits
+# the primary service `pg-rw` directly — logical replication can't go through a transaction pooler.)
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: postgres
+spec:
+  cluster:
+    name: pg
+  instances: 2
+  type: rw
+  pgbouncer:
+    poolMode: session
+    parameters:
+      max_client_conn: "1000"
+      default_pool_size: "25"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: pg-daily
+spec:
+  cluster:
+    name: pg
+  method: barmanObjectStore
+  schedule: "0 0 2 * * *"          # 02:00 daily (6-field cron: sec min hour dom mon dow)
+  backupOwnerReference: cluster
