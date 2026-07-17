@@ -1,5 +1,7 @@
 package com.ecommerce.cart.service;
 
+import com.ecommerce.cart.client.ProductServiceClient;
+import com.ecommerce.common.error.ResourceNotFoundException;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -14,6 +16,7 @@ import java.util.stream.Collectors;
 public class CartService {
 
     private final RedisTemplate<String, Object> redisTemplate;
+    private final ProductServiceClient productServiceClient;
     private static final Duration CART_TTL = Duration.ofDays(7);
 
     private String cartKey(String userId) {
@@ -21,6 +24,9 @@ public class CartService {
     }
 
     public void addItem(String userId, CartItem item) {
+        if (!productServiceClient.exists(item.getProductId())) {
+            throw new ResourceNotFoundException("Product not found: " + item.getProductId());
+        }
         // Redis HASH: field=productId, value=quantity
         // HSET cart:user123 product:456 2
         redisTemplate.opsForHash().put(

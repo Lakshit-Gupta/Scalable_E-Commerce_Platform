@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.ecommerce.grpc.product";
+option java_outer_classname = "ProductProto";
+
+package product;
+
+// Internal product-service RPCs. CheckExists: cart-service validation. Reserve/Confirm/Release:
+// order-service saga — atomic stock reservation keyed by orderId (idempotent).
+service ProductService {
+  rpc CheckExists (CheckExistsRequest) returns (CheckExistsResponse);
+  rpc Reserve (ReserveRequest) returns (ReserveResponse);
+  rpc Confirm (OrderRef) returns (Ack);
+  rpc Release (OrderRef) returns (Ack);
+}
+
+message CheckExistsRequest {
+  string product_id = 1;
+}
+
+message CheckExistsResponse {
+  bool exists = 1;
+}
+
+message ReserveLine {
+  string product_id = 1;
+  int32 quantity = 2;
+}
+
+message ReserveRequest {
+  string order_id = 1;
+  repeated ReserveLine lines = 2;
+}
+
+message ReserveResponse {
+  bool ok = 1;        // false = at least one line lacked stock (all-or-nothing, nothing reserved)
+  string reason = 2;
+}
+
+message OrderRef {
+  string order_id = 1;
+}
+
+message Ack {
+  bool ok = 1;
+}
