@@ -11,6 +11,7 @@ import reactor.core.publisher.Mono;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * After Spring Security validates the Keycloak access token, copy identity onto trusted headers so
@@ -23,19 +24,29 @@ import java.util.Map;
 @Component
 public class UserHeaderGlobalFilter implements GlobalFilter, Ordered {
 
+    // Client-supplied copies of these are never trusted — always stripped, then set from the JWT.
+    private static final Set<String> IDENTITY_HEADERS = Set.of("X-User-Id", "X-User-Role");
+
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         return exchange.getPrincipal()
             .filter(JwtAuthenticationToken.class::isInstance)
             .cast(JwtAuthenticationToken.class)
             .map(auth -> withIdentityHeaders(exchange, auth.getToken()))
-            .defaultIfEmpty(exchange)
+            // Anonymous/public route: strip any spoofed identity headers, inject nothing.
+            .defaultIfEmpty(stripIdentityHeaders(exchange))
             .flatMap(chain::filter);
     }
 
     private ServerWebExchange withIdentityHeaders(ServerWebExchange exchange, Jwt jwt) {
         var mutatedRequest = MutableRequestHeaders.with(exchange.getRequest(),
-            Map.of("X-User-Id", jwt.getSubject(), "X-User-Role", resolveRole(jwt)));
+            Map.of("X-User-Id", jwt.getSubject(), "X-User-Role", resolveRole(jwt)),
+            IDENTITY_HEADERS);
+        return exchange.mutate().request(mutatedRequest).build();
+    }
+
+    private ServerWebExchange stripIdentityHeaders(ServerWebExchange exchange) {
+        var mutatedRequest = MutableRequestHeaders.with(exchange.getRequest(), Map.of(), IDENTITY_HEADERS);
         return exchange.mutate().request(mutatedRequest).build();
     }
 

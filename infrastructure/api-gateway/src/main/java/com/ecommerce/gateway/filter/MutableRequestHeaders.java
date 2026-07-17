@@ -5,6 +5,7 @@ import org.springframework.http.server.reactive.ServerHttpRequest;
 import org.springframework.http.server.reactive.ServerHttpRequestDecorator;
 
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Returns a request whose headers include {@code extra}, safe even when the source request exposes
@@ -18,8 +19,18 @@ final class MutableRequestHeaders {
     }
 
     static ServerHttpRequest with(ServerHttpRequest request, Map<String, String> extra) {
+        return with(request, extra, Set.of());
+    }
+
+    /**
+     * Decorate the request with {@code extra} headers set, and {@code remove} headers dropped first.
+     * Removals are applied before sets so callers can strip client-supplied identity headers (spoof
+     * defense) and re-set trusted values in one pass.
+     */
+    static ServerHttpRequest with(ServerHttpRequest request, Map<String, String> extra, Set<String> remove) {
         HttpHeaders writable = new HttpHeaders();
         writable.addAll(request.getHeaders());
+        remove.forEach(writable::remove);
         extra.forEach(writable::set);
         return new ServerHttpRequestDecorator(request) {
             @Override
