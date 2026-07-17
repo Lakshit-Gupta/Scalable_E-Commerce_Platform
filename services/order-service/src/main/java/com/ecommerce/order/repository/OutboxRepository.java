@@ -8,6 +8,6 @@ import java.util.UUID;
 
 public interface OutboxRepository extends JpaRepository<OutboxEvent, UUID> {
 
-    /** Oldest-first batch of not-yet-published events for the relay to publish. */
-    List<OutboxEvent> findTop100ByPublishedFalseOrderByCreatedAtAsc();
+    /** Oldest-first batch: unpublished and not permanently failed. */
+    List<OutboxEvent> findTop100ByPublishedFalseAndFailedFalseOrderByCreatedAtAsc();
 }

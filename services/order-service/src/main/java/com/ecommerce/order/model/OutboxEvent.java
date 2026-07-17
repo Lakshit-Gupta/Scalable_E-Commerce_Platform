@@ -43,4 +43,8 @@ public class OutboxEvent {
     private boolean published;
 
     private Instant publishedAt;
+
+    private int retryCount;   // incremented each time the relay fails to publish this event
+
+    private boolean failed;   // true when retryCount exceeds the max (event skipped by relay)
 }

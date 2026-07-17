@@ -1,0 +1,5 @@
+ALTER TABLE outbox ADD COLUMN IF NOT EXISTS retry_count INT    NOT NULL DEFAULT 0;
+ALTER TABLE outbox ADD COLUMN IF NOT EXISTS failed      BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE INDEX IF NOT EXISTS idx_outbox_relay ON outbox (created_at)
+    WHERE published = FALSE AND failed = FALSE;
