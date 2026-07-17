@@ -1,0 +1,75 @@
+# HashiCorp Vault (v0.1.13) — secrets backend. Dev mode: auto-unsealed, in-memory, root token "root".
+# The 7 servlet services read secret/application via Spring Cloud Vault (optional import in the shared
+# config-repo) — env from app-secrets stays the fallback, so this never blocks boot.
+# PROD: replace dev mode with real storage + AppRole/Kubernetes auth; never ship a static root token.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: vault }
+  template:
+    metadata:
+      labels: { app: vault }
+    spec:
+      containers:
+        - name: vault
+          image: hashicorp/vault:1.15
+          args: ["server", "-dev"]
+          securityContext:
+            capabilities:
+              add: ["IPC_LOCK"]
+          env:
+            - { name: VAULT_DEV_ROOT_TOKEN_ID, value: root }
+            - { name: VAULT_DEV_LISTEN_ADDRESS, value: "0.0.0.0:8200" }
+            - { name: VAULT_ADDR, value: "http://127.0.0.1:8200" }
+          ports: [{ containerPort: 8200 }]
+          readinessProbe:
+            httpGet: { path: /v1/sys/health, port: 8200 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "100m", memory: "128Mi" }
+            limits: { memory: "256Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault
+spec:
+  selector: { app: vault }
+  ports: [{ port: 8200, targetPort: 8200 }]
+---
+# Seeds secret/application from app-secrets so Vault mirrors the k8s Secret (dev). Idempotent (kv put).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: vault-seed
+spec:
+  backoffLimit: 4
+  template:
+    metadata:
+      labels: { app: vault-seed }
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: hashicorp/vault:1.15
+          envFrom:
+            - secretRef: { name: app-secrets }   # DB_PASSWORD, REDIS_PASSWORD, … in env
+          env:
+            - { name: VAULT_ADDR, value: "http://vault:8200" }
+            - { name: VAULT_TOKEN, value: root }
+          command: ["sh", "-c"]
+          args:
+            - |
+              until vault status >/dev/null 2>&1; do echo "waiting for vault…"; sleep 3; done
+              vault kv put secret/application \
+                DB_PASSWORD="$DB_PASSWORD" \
+                REDIS_PASSWORD="$REDIS_PASSWORD" \
+                RABBITMQ_PASSWORD="$RABBITMQ_PASSWORD" \
+                STORAGE_ACCESS_KEY="$STORAGE_ACCESS_KEY" \
+                STORAGE_SECRET_KEY="$STORAGE_SECRET_KEY" \
+                PAYLOAD_SECRET="$PAYLOAD_SECRET"

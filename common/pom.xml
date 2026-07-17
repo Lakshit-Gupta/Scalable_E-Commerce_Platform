@@ -20,7 +20,7 @@
 
     <groupId>com.ecommerce</groupId>
     <artifactId>common</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.6</version>
     <name>common</name>
     <description>Shared cross-cutting library: RFC-7807 errors, validation handling, correlation-id tracing.</description>
 
@@ -53,6 +53,14 @@
             <groupId>io.github.openfeign</groupId>
             <artifactId>feign-core</artifactId>
             <optional>true</optional>
+        </dependency>
+        <!-- Vault-backed secrets (v0.1.13). Deliberately NON-optional: secrets are cross-cutting, so
+             every servlet service (common's only consumers — gateway/config/eureka don't use common)
+             becomes Vault-aware transitively. Inert unless the shared config adds an `optional:vault://`
+             import, so it never forces Vault on at build/run time. -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-vault-config</artifactId>
         </dependency>
 
         <!-- Test -->
