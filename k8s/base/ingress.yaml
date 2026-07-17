@@ -1,0 +1,31 @@
+# Ingress (v0.1.7). Public web = storefront (the BFF); the API/Swagger is reachable via the gateway
+# host. Override hosts + ingressClassName per environment; in prod Cloudflare fronts the storefront.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ecommerce
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: shop.example.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: storefront
+                port:
+                  number: 3000
+    - host: api.example.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 8080

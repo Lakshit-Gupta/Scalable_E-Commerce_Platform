@@ -1,0 +1,46 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Kubernetes base (v0.1.7) for the whole platform. Apply with:
+#   kubectl apply -k k8s/base
+# Repoint images to your registry/tag with the images: block below (defaults = GHCR :latest from
+# .github/workflows/images.yml). Observability tier (Prometheus/Grafana/Tempo/Loki/Jaeger) is not
+# included here — deploy via kube-prometheus-stack / the compose observability files.
+
+namespace: ecommerce
+
+resources:
+  - namespace.yaml
+  - config.yaml
+  - postgres-ha.yaml
+  - datastores.yaml
+  - infra.yaml
+  - services.yaml
+  - frontend.yaml
+  - hpa.yaml
+  - ingress.yaml
+  - debezium.yaml
+  - keda.yaml
+  - schema-registry.yaml
+  - vault.yaml
+
+# Debezium connector template (single source of truth — also bind-mounted by docker-compose).
+configMapGenerator:
+  - name: debezium-connector-config
+    files:
+      - order-outbox-connector.json
+  - name: keycloak-realm
+    files:
+      - realm-ecommerce.json
+generatorOptions:
+  disableNameSuffixHash: true   # stable name for the registration Job's volume ref
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: scalable-ecommerce
+    includeSelectors: false   # don't touch the (immutable) Deployment selectors
+
+# Example image overrides (uncomment + edit to pin a tag or swap registry):
+# images:
+#   - name: ghcr.io/lakshit-gupta/scalable_e-commerce_platform/api-gateway
+#     newTag: v0.1.7

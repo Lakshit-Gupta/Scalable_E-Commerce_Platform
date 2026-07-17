@@ -1,0 +1,90 @@
+# Node apps (v0.1.7): SvelteKit storefront (BFF) + Payload CMS. Both listen on 3000. cms builds its
+# DATABASE_URL from the shared DB password via a dependent env reference ($(DB_PASSWORD)).
+# ----------------------------------------------------------------------------- storefront
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storefront
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: storefront } }
+  template:
+    metadata:
+      labels: { app: storefront }
+    spec:
+      containers:
+        - name: storefront
+          image: ghcr.io/lakshit-gupta/scalable_e-commerce_platform/storefront:latest
+          env:
+            - { name: GATEWAY_URL, value: "http://api-gateway:8080" }
+            - { name: CMS_URL, value: "http://cms:3000" }
+            - { name: KEYCLOAK_TOKEN_URL, value: "http://keycloak:8080/realms/ecommerce/protocol/openid-connect/token" }
+            - { name: KEYCLOAK_CLIENT_ID, value: "ecommerce-app" }
+            # Public origin — override per environment (Cloudflare/Ingress host). Required for CSRF.
+            - { name: ORIGIN, value: "http://localhost:3000" }
+            - { name: PORT, value: "3000" }
+          ports: [{ containerPort: 3000 }]
+          readinessProbe:
+            httpGet: { path: /, port: 3000 }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { memory: "512Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storefront
+spec:
+  selector: { app: storefront }
+  ports: [{ port: 3000, targetPort: 3000 }]
+---
+# ----------------------------------------------------------------------------- cms (Payload)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cms
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: cms } }
+  template:
+    metadata:
+      labels: { app: cms }
+    spec:
+      containers:
+        - name: cms
+          image: ghcr.io/lakshit-gupta/scalable_e-commerce_platform/cms:latest
+          env:
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: app-secrets, key: DB_PASSWORD } }
+            # Dependent reference: k8s substitutes $(DB_PASSWORD) from the env var above.
+            - { name: DATABASE_URL, value: "postgres://ecommerce:$(DB_PASSWORD)@postgres:5432/cms_db" }
+            - name: PAYLOAD_SECRET
+              valueFrom: { secretKeyRef: { name: app-secrets, key: PAYLOAD_SECRET } }
+            - { name: STORAGE_ENDPOINT, value: "http://minio:9000" }
+            - { name: STORAGE_REGION, value: "us-east-1" }
+            - { name: STORAGE_BUCKET, value: "cms-media" }
+            - name: STORAGE_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: app-secrets, key: STORAGE_ACCESS_KEY } }
+            - name: STORAGE_SECRET_KEY
+              valueFrom: { secretKeyRef: { name: app-secrets, key: STORAGE_SECRET_KEY } }
+            - { name: CMS_PUBLIC_URL, value: "http://localhost:3002" }
+            - { name: CMS_CORS_ORIGINS, value: "http://localhost:3000" }
+            - { name: PORT, value: "3000" }
+          ports: [{ containerPort: 3000 }]
+          readinessProbe:
+            httpGet: { path: /admin, port: 3000 }
+            initialDelaySeconds: 40
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "100m", memory: "384Mi" }
+            limits: { memory: "768Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cms
+spec:
+  selector: { app: cms }
+  ports: [{ port: 3000, targetPort: 3000 }]

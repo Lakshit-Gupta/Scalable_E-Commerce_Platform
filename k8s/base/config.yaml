@@ -1,0 +1,43 @@
+# Non-secret shared env (v0.1.7). Service DNS names match docker-compose, so each service's
+# built-in defaults resolve in-cluster too; these are set explicitly for clarity/overrides.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  CONFIG_SERVER_URL: "http://config-server:8888"
+  DB_HOST: "postgres"
+  REDIS_HOST: "redis"
+  RABBITMQ_HOST: "rabbitmq"
+  KAFKA_BOOTSTRAP: "kafka:9092"
+  ELASTICSEARCH_URIS: "http://elasticsearch:9200"
+  STORAGE_ENDPOINT: "http://minio:9000"
+  KEYCLOAK_URL: "http://keycloak:8080"
+  # Traces → OTel collector if the observability tier is deployed; harmless if absent.
+  OTLP_TRACING_ENDPOINT: "http://otel-collector:4318/v1/traces"
+  EUREKA_URL: "http://eureka-server:8761/eureka/"
+  VAULT_URI: "http://vault:8200"
+  # Spring Cloud Vault connection via env (read at config-data time — config-server-served values load
+  # too late for the vault:// import). Relaxed binding: SPRING_CLOUD_VAULT_* -> spring.cloud.vault.*
+  SPRING_CLOUD_VAULT_URI: "http://vault:8200"
+  SPRING_CLOUD_VAULT_AUTHENTICATION: "TOKEN"
+  SPRING_CLOUD_VAULT_KV_BACKEND: "secret"
+  SPRING_CLOUD_VAULT_KV_DEFAULT_CONTEXT: "application"
+---
+# Secrets (v0.1.7). Dev defaults — override per environment (or source from Vault/External Secrets).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets
+type: Opaque
+stringData:
+  DB_PASSWORD: "ecommerce-dev-pass"
+  REDIS_PASSWORD: "redis-dev-pass"
+  RABBITMQ_PASSWORD: "rabbit-dev-pass"
+  STORAGE_ACCESS_KEY: "minioadmin"
+  STORAGE_SECRET_KEY: "minioadmin"
+  PAYLOAD_SECRET: "cms-dev-secret-change-me"
+  VAULT_TOKEN: "root"   # dev root token; prod = AppRole/K8s auth, not this
+  SPRING_CLOUD_VAULT_TOKEN: "root"   # read early for the vault:// import (see app-config note)
+# Per-service databases are created by the CloudNativePG cluster bootstrap (postgres-ha.yaml
+# initdb.postInitSQL), not a ConfigMap — the plain-postgres init script is gone.

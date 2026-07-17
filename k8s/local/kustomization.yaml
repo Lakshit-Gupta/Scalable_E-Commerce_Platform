@@ -1,0 +1,43 @@
+# Local kind overlay (v0.1.14): full HA stack against locally-built images.
+#   docker tag scalable_e-commerce_platform-<svc>:latest ecommerce/<svc>:local && kind load ...
+# The :local tag (non-:latest) makes kubelet default to IfNotPresent, so the loaded images are used
+# with no registry pull. cms is dropped (image not built locally; storefront degrades without it).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../base
+
+images:
+  - { name: ghcr.io/lakshit-gupta/scalable_e-commerce_platform/api-gateway,          newName: ecommerce/api-gateway,          newTag: local }
+  - { name: ghcr.io/lakshit-gupta/scalable_e-commerce_platform/config-server,         newName: ecommerce/config-server,         newTag: local }
+  - { name: ghcr.io/lakshit-gupta/scalable_e-commerce_platform/eureka-server,         newName: ecommerce/eureka-server,         newTag: local }
+  - { name: ghcr.io/lakshit-gupta/scalable_e-commerce_platform/user-service,          newName: ecommerce/user-service,          newTag: local }
+  - { name: ghcr.io/lakshit-gupta/scalable_e-commerce_platform/product-service,       newName: ecommerce/product-service,       newTag: local }
+  - { name: ghcr.io/lakshit-gupta/scalable_e-commerce_platform/cart-service,          newName: ecommerce/cart-service,          newTag: local }
+  - { name: ghcr.io/lakshit-gupta/scalable_e-commerce_platform/order-service,         newName: ecommerce/order-service,         newTag: local }
+  - { name: ghcr.io/lakshit-gupta/scalable_e-commerce_platform/payment-service,       newName: ecommerce/payment-service,       newTag: local }
+  - { name: ghcr.io/lakshit-gupta/scalable_e-commerce_platform/notification-service,  newName: ecommerce/notification-service,  newTag: local }
+  - { name: ghcr.io/lakshit-gupta/scalable_e-commerce_platform/recommendation-service, newName: ecommerce/recommendation-service, newTag: local }
+  - { name: ghcr.io/lakshit-gupta/scalable_e-commerce_platform/storefront,            newName: ecommerce/storefront,            newTag: local }
+
+# cms isn't built locally — remove its Deployment/Service/HPA so nothing tries to pull it.
+patches:
+  - target: { kind: Deployment, name: cms }
+    patch: |
+      $patch: delete
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata: { name: cms }
+  - target: { kind: Service, name: cms }
+    patch: |
+      $patch: delete
+      apiVersion: v1
+      kind: Service
+      metadata: { name: cms }
+  - target: { kind: HorizontalPodAutoscaler, name: cms }
+    patch: |
+      $patch: delete
+      apiVersion: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+      metadata: { name: cms }

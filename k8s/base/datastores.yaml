@@ -1,0 +1,287 @@
+# Backing datastores (v0.1.7). Single-replica Deployments + PVCs (dev). In production use operators
+# or managed services (RDS/Elasticache/MSK/…). Service names match docker-compose so app config
+# resolves unchanged in-cluster.
+# postgres is HA via the CloudNativePG operator — see postgres-ha.yaml (Cluster + Pooler + backups).
+# ----------------------------------------------------------------------------- redis
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: 1Gi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command: ["sh", "-c", "redis-server --requirepass \"$REDIS_PASSWORD\""]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom: { secretKeyRef: { name: app-secrets, key: REDIS_PASSWORD } }
+          ports: [{ containerPort: 6379 }]
+          volumeMounts: [{ name: data, mountPath: /data }]
+          resources:
+            requests: { cpu: "50m", memory: "64Mi" }
+            limits: { memory: "256Mi" }
+      volumes:
+        - { name: data, persistentVolumeClaim: { claimName: redis-data } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+spec:
+  selector: { app: redis }
+  ports: [{ port: 6379, targetPort: 6379 }]
+---
+# ----------------------------------------------------------------------------- rabbitmq
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rabbitmq
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: rabbitmq }
+  template:
+    metadata:
+      labels: { app: rabbitmq }
+    spec:
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3.13-management-alpine
+          env:
+            - { name: RABBITMQ_DEFAULT_USER, value: ecommerce }
+            - name: RABBITMQ_DEFAULT_PASS
+              valueFrom: { secretKeyRef: { name: app-secrets, key: RABBITMQ_PASSWORD } }
+          ports:
+            - { containerPort: 5672 }
+            - { containerPort: 15672 }
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { memory: "512Mi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rabbitmq
+spec:
+  selector: { app: rabbitmq }
+  ports:
+    - { name: amqp, port: 5672, targetPort: 5672 }
+    - { name: mgmt, port: 15672, targetPort: 15672 }
+---
+# ----------------------------------------------------------------------------- kafka (KRaft)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kafka-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: 5Gi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: kafka }
+  strategy: { type: Recreate }
+  template:
+    metadata:
+      labels: { app: kafka }
+    spec:
+      containers:
+        - name: kafka
+          image: apache/kafka:3.8.0
+          env:
+            - { name: KAFKA_NODE_ID, value: "1" }
+            - { name: KAFKA_PROCESS_ROLES, value: "broker,controller" }
+            - { name: KAFKA_CONTROLLER_QUORUM_VOTERS, value: "1@kafka:9093" }
+            - { name: KAFKA_LISTENERS, value: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093" }
+            # FQDN: cross-namespace clients (KEDA kafka scaler in ns keda) must be able to dial the advertised address
+            - { name: KAFKA_ADVERTISED_LISTENERS, value: "PLAINTEXT://kafka.ecommerce.svc.cluster.local:9092" }
+            - { name: KAFKA_CONTROLLER_LISTENER_NAMES, value: "CONTROLLER" }
+            - { name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP, value: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT" }
+            - { name: KAFKA_INTER_BROKER_LISTENER_NAME, value: "PLAINTEXT" }
+            - { name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR, value: "1" }
+            - { name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR, value: "1" }
+            - { name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR, value: "1" }
+            - { name: KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS, value: "0" }
+            - { name: KAFKA_AUTO_CREATE_TOPICS_ENABLE, value: "true" }
+          ports:
+            - { containerPort: 9092 }
+            - { containerPort: 9093 }
+          volumeMounts: [{ name: data, mountPath: /var/lib/kafka/data }]
+          resources:
+            requests: { cpu: "200m", memory: "512Mi" }
+            limits: { memory: "1Gi" }
+      volumes:
+        - { name: data, persistentVolumeClaim: { claimName: kafka-data } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+spec:
+  selector: { app: kafka }
+  ports:
+    - { name: plaintext, port: 9092, targetPort: 9092 }
+    - { name: controller, port: 9093, targetPort: 9093 }
+---
+# ----------------------------------------------------------------------------- elasticsearch
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: elasticsearch-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: 5Gi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elasticsearch
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: elasticsearch }
+  strategy: { type: Recreate }
+  template:
+    metadata:
+      labels: { app: elasticsearch }
+    spec:
+      containers:
+        - name: elasticsearch
+          image: elasticsearch:8.13.0
+          env:
+            - { name: discovery.type, value: single-node }
+            - { name: xpack.security.enabled, value: "false" }
+            - { name: ES_JAVA_OPTS, value: "-Xms512m -Xmx512m" }
+          ports: [{ containerPort: 9200 }]
+          volumeMounts: [{ name: data, mountPath: /usr/share/elasticsearch/data }]
+          resources:
+            requests: { cpu: "200m", memory: "1Gi" }
+            limits: { memory: "1500Mi" }
+      volumes:
+        - { name: data, persistentVolumeClaim: { claimName: elasticsearch-data } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+spec:
+  selector: { app: elasticsearch }
+  ports: [{ port: 9200, targetPort: 9200 }]
+---
+# ----------------------------------------------------------------------------- minio
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources: { requests: { storage: 5Gi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: minio }
+  strategy: { type: Recreate }
+  template:
+    metadata:
+      labels: { app: minio }
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:RELEASE.2024-09-22T00-33-43Z
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom: { secretKeyRef: { name: app-secrets, key: STORAGE_ACCESS_KEY } }
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: app-secrets, key: STORAGE_SECRET_KEY } }
+          ports:
+            - { containerPort: 9000 }
+            - { containerPort: 9001 }
+          volumeMounts: [{ name: data, mountPath: /data }]
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { memory: "512Mi" }
+      volumes:
+        - { name: data, persistentVolumeClaim: { claimName: minio-data } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+spec:
+  selector: { app: minio }
+  ports:
+    - { name: api, port: 9000, targetPort: 9000 }
+    - { name: console, port: 9001, targetPort: 9001 }
+---
+# ----------------------------------------------------------------------------- keycloak
+# start-dev. Realm import (infrastructure/keycloak/realm-ecommerce.json) not mounted here — add it as
+# a ConfigMap volume at /opt/keycloak/data/import with --import-realm for a working 'ecommerce' realm.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keycloak
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: keycloak }
+  template:
+    metadata:
+      labels: { app: keycloak }
+    spec:
+      containers:
+        - name: keycloak
+          image: quay.io/keycloak/keycloak:26.0
+          args: ["start-dev", "--import-realm"]
+          env:
+            - { name: KEYCLOAK_ADMIN, value: admin }
+            - { name: KEYCLOAK_ADMIN_PASSWORD, value: admin }
+            - { name: KC_HEALTH_ENABLED, value: "true" }
+            - { name: KC_HTTP_ENABLED, value: "true" }
+            - { name: KC_HOSTNAME_STRICT, value: "false" }
+            - { name: JAVA_OPTS_KC_HEAP, value: "-Xms256m -Xmx1024m" }   # cap heap under the limit
+            # Argon2 password hashing allocates ~7MB NATIVE memory per concurrent login (outside heap);
+            # cap worker threads so a login stampede can't OOM the pod (50 × 7MB ≈ 350MB native ceiling)
+            - { name: KC_HTTP_POOL_MAX_THREADS, value: "50" }
+          ports: [{ containerPort: 8080 }]
+          volumeMounts:
+            - { name: realm, mountPath: /opt/keycloak/data/import, readOnly: true }
+          resources:
+            requests: { cpu: "200m", memory: "512Mi" }
+            limits: { memory: "2560Mi" }   # heap 1Gi + Argon2 native headroom (OOMKilled at 1536Mi under login load)
+      volumes:
+        - name: realm
+          configMap: { name: keycloak-realm }   # realm 'ecommerce' imported on start
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: keycloak
+spec:
+  selector: { app: keycloak }
+  ports: [{ port: 8080, targetPort: 8080 }]
