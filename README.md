@@ -208,6 +208,28 @@ k6/run.sh load     # ramping load: browse, search, register, cart, and order
 
 Scenarios live in `k6/`, with thresholds that fail the run on an SLO breach.
 
+**Performance benchmarking & observability.** A full, reproducible bench lives in
+[`perf/`](perf/README.md): it seeds the databases at any scale, drives realistic user
+journeys with k6 (smoke → baseline → medium → heavy → stress → spike → soak), and streams
+every metric into a Prometheus + Grafana + node-exporter + kube-state-metrics stack running
+in the cluster. One command reruns the whole thing at a bigger dataset:
+
+```bash
+perf/run.sh all smoke demo       # seed + load + capture dashboards + report
+perf/run.sh test stress stage1   # ramp 100→10k VUs, auto-abort at the breaking point
+```
+
+Dashboards below are captured automatically per run (`perf/run.sh capture` → dark-theme PNGs):
+
+| Spring Boot / JVM under load | JVM (Micrometer) | Node / infrastructure |
+|---|---|---|
+| ![Spring Boot APM](docs/perf/screenshots/spring-boot-apm.png) | ![JVM Micrometer](docs/perf/screenshots/jvm-micrometer.png) | ![Node Exporter](docs/perf/screenshots/node-exporter-nodes.png) |
+
+Each run also produces a `report.md` (throughput, P50/P95/P99, error rate, slowest SQL from
+`pg_stat_statements`, pod resource usage, scaling events) plus a diff against the previous run —
+so every optimization is measured objectively. See [`perf/README.md`](perf/README.md) for the
+per-scale command reference.
+
 **Dependency scanning.** OWASP Dependency-Check runs behind the `security` Maven
 profile, so normal builds are unaffected, and also runs in CI:
 

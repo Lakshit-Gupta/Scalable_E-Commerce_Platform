@@ -1,0 +1,82 @@
+# Lean kube-prometheus-stack values tuned for a single kind node sharing a 32GB host.
+# Trims retention/resources; adds pod-discovery scrape of the Spring services'
+# /actuator/prometheus (Service ports are unnamed, so ServiceMonitors are awkward —
+# a kubernetes_sd pod scrape by the `app` label is simpler and robust).
+fullnameOverride: kps
+
+alertmanager:
+  enabled: false   # ponytail: no receivers wired in a local bench; PrometheusRules annotate the report instead
+
+grafana:
+  adminPassword: admin
+  defaultDashboardsTimezone: browser
+  service:
+    type: ClusterIP
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 384Mi }
+  # Auto-import community dashboards by gnetId (JVM Micrometer, Spring Boot, node-exporter, k8s views).
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: default
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options: { path: /var/lib/grafana/dashboards/default }
+  dashboards:
+    default:
+      jvm-micrometer:      { gnetId: 4701,  revision: 10, datasource: Prometheus }
+      spring-boot-statistics: { gnetId: 12900, revision: 1, datasource: Prometheus }
+      node-exporter-full:  { gnetId: 1860,  revision: 37, datasource: Prometheus }
+
+prometheus-node-exporter:
+  resources:
+    requests: { cpu: 20m, memory: 24Mi }
+    limits: { memory: 64Mi }
+
+kube-state-metrics:
+  resources:
+    requests: { cpu: 20m, memory: 32Mi }
+    limits: { memory: 96Mi }
+
+prometheusOperator:
+  resources:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { memory: 256Mi }
+
+prometheus:
+  prometheusSpec:
+    retention: 2d
+    scrapeInterval: 15s
+    resources:
+      requests: { cpu: 100m, memory: 512Mi }
+      limits: { memory: 1536Mi }
+    # Pick up ServiceMonitors/PodMonitors regardless of release label.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    # Scrape the Spring services + gateway by pod discovery on :8080/actuator/prometheus.
+    additionalScrapeConfigs:
+      - job_name: 'ecommerce-spring'
+        metrics_path: /actuator/prometheus
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [ecommerce]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            regex: '(api-gateway|user-service|product-service|cart-service|order-service|payment-service|notification-service|recommendation-service|config-server|eureka-server)'
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_container_port_number]
+            regex: '8080'
+            action: keep
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            target_label: service
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - target_label: job
+            replacement: ecommerce-spring
