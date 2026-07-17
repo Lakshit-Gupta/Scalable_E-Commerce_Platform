@@ -29,12 +29,17 @@ public class OrderEventsKafkaConsumer {
         log.info("[kafka] order-events received: {}", payload);
         try {
             JsonNode node = objectMapper.readTree(payload);
+            // Apicurio ExtJsonConverter wraps the event as {"schemaId":N,"payload":{...}}; the plain
+            // outbox poller emits it at root. Unwrap when the envelope is present.
+            JsonNode event = node.has("payload") ? node.get("payload") : node;
             Map<String, Object> props = new HashMap<>();
-            props.put("orderId", node.path("orderId").asText());
-            props.put("totalAmount", node.path("totalAmount").asDouble());
-            analytics.capture(node.path("userId").asText(null), "order_placed", props);
-        } catch (Exception e) {
-            log.warn("[analytics] could not capture order event: {}", e.getMessage());
+            props.put("orderId", event.path("orderId").asText());
+            props.put("totalAmount", event.path("totalAmount").asDouble());
+            analytics.capture(event.path("userId").asText(null), "order_placed", props);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            // Poison message: unparseable payload won't be fixed by retry — send to DLT immediately.
+            log.error("[kafka] unparseable order event, will route to DLT: {}", e.getMessage());
+            throw new IllegalArgumentException("Unparseable order event payload", e);
         }
     }
 }

@@ -19,6 +19,12 @@ spring:
           max-active: 20
           max-idle: 10
 
+grpc:
+  client:
+    product-service:
+      address: 'discovery:///PRODUCT-SERVICE'   # resolve product-service via Eureka
+      negotiation-type: plaintext
+
 eureka:
   client:
     service-url:

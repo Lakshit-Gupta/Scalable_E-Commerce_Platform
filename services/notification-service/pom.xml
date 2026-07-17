@@ -13,7 +13,7 @@
 
     <groupId>com.ecommerce</groupId>
     <artifactId>notification-service</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.6</version>
     <name>notification-service</name>
 
     <properties>
@@ -26,7 +26,7 @@
         <dependency>
             <groupId>com.ecommerce</groupId>
             <artifactId>common</artifactId>
-            <version>0.1.0</version>
+            <version>0.1.6</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -64,6 +64,17 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
         </dependency>
+        <!-- gRPC client: calls user-service GetEmail RPC instead of REST -->
+        <dependency>
+            <groupId>com.ecommerce</groupId>
+            <artifactId>proto</artifactId>
+            <version>0.1.6</version>
+        </dependency>
+        <dependency>
+            <groupId>net.devh</groupId>
+            <artifactId>grpc-client-spring-boot-starter</artifactId>
+            <version>3.1.0.RELEASE</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-config</artifactId>
@@ -87,6 +98,14 @@
 
     <dependencyManagement>
         <dependencies>
+            <!-- Force all gRPC artifacts to one version so net.devh + proto agree at runtime. -->
+            <dependency>
+                <groupId>io.grpc</groupId>
+                <artifactId>grpc-bom</artifactId>
+                <version>1.65.1</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>org.springframework.cloud</groupId>
                 <artifactId>spring-cloud-dependencies</artifactId>

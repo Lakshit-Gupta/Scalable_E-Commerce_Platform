@@ -26,6 +26,12 @@ spring:
     deserialization:
       fail-on-unknown-properties: false   # event has more fields than this consumer needs
 
+grpc:
+  client:
+    user-service:
+      address: 'discovery:///USER-SERVICE'   # resolve user-service via Eureka
+      negotiation-type: plaintext
+
 eureka:
   client:
     service-url:

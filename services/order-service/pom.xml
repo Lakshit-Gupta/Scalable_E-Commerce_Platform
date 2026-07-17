@@ -13,7 +13,7 @@
 
     <groupId>com.ecommerce</groupId>
     <artifactId>order-service</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.6</version>
     <name>order-service</name>
 
     <properties>
@@ -26,7 +26,7 @@
         <dependency>
             <groupId>com.ecommerce</groupId>
             <artifactId>common</artifactId>
-            <version>0.1.0</version>
+            <version>0.1.6</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -75,7 +75,7 @@
         <dependency>
             <groupId>com.ecommerce</groupId>
             <artifactId>proto</artifactId>
-            <version>0.1.0</version>
+            <version>0.1.6</version>
         </dependency>
         <dependency>
             <groupId>net.devh</groupId>
@@ -98,6 +98,14 @@
             <scope>runtime</scope>
         </dependency>
         <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+        <dependency>
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
             <scope>runtime</scope>
@@ -106,6 +114,11 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

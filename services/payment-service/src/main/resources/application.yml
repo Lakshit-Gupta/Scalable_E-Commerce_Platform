@@ -22,8 +22,11 @@ spring:
       minimum-idle: 5
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: ${DDL_AUTO:update}
     open-in-view: false
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    baseline-on-migrate: true
 
 eureka:
   client:

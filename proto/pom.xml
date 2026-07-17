@@ -19,7 +19,7 @@
 
     <groupId>com.ecommerce</groupId>
     <artifactId>proto</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.6</version>
     <name>proto</name>
     <description>Shared gRPC/protobuf contracts.</description>
 

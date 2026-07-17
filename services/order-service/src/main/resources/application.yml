@@ -21,8 +21,11 @@ spring:
       max-lifetime: 1800000      # recycle connections every 30 min
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: ${DDL_AUTO:update}
     open-in-view: false
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    baseline-on-migrate: true
   rabbitmq:
     host: ${RABBITMQ_HOST:rabbitmq}
     port: 5672
@@ -48,6 +51,9 @@ grpc:
     payment:
       address: 'discovery:///PAYMENT-SERVICE'   # resolve payment-service via Eureka
       negotiation-type: plaintext               # no TLS on the internal network
+    product:
+      address: 'discovery:///PRODUCT-SERVICE'   # stock reservation saga (Reserve/Confirm/Release)
+      negotiation-type: plaintext
 
 # Circuit breaker for the order->payment gRPC call (Spring Cloud CircuitBreakerFactory id "payment").
 resilience4j:

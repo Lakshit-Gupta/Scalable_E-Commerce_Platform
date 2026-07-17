@@ -18,8 +18,11 @@ spring:
       minimum-idle: 5
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: ${DDL_AUTO:update}
     open-in-view: false
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    baseline-on-migrate: true
   cache:
     type: redis
     redis:
@@ -41,6 +44,16 @@ spring:
     port: 5672
     username: ecommerce
     password: ${RABBITMQ_PASSWORD:}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:kafka:9092}
+    consumer:
+      group-id: product-search-indexing
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: false
 
 # Object storage (v0.0.13): S3-compatible. MinIO locally; swap to Cloudflare R2 in prod via env.
 storage:
@@ -50,12 +63,18 @@ storage:
   secret-key: ${STORAGE_SECRET_KEY:minioadmin}
   bucket: ${STORAGE_BUCKET:product-media}
 
+grpc:
+  server:
+    port: 9092   # internal gRPC (cart-service -> product-service)
+
 eureka:
   client:
     service-url:
       defaultZone: http://eureka-server:8761/eureka/
   instance:
     prefer-ip-address: true
+    metadata-map:
+      "gRPC.port": 9092
 
 management:
   endpoints:

@@ -35,3 +35,15 @@ AGENTS.md
 GEMINI.md
 .plan/
 docs/internal/
+
+# perf bench — per-run artifacts and caches (curated screenshots live in docs/perf/)
+perf/results/
+perf/.cache/
+perf/k6/sample.json
+perf/k6/summary.json
+.playwright-mcp/
+
+# Node build output (frontend + cms) — never committed
+node_modules/
+.svelte-kit/
+.next/

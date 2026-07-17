@@ -19,8 +19,15 @@ spring:
       connection-timeout: 30000
   jpa:
     hibernate:
-      ddl-auto: update     # dev convenience; production uses Flyway migrations
+      ddl-auto: ${DDL_AUTO:update}   # set DDL_AUTO=validate in production (Flyway manages schema)
     open-in-view: false
+  flyway:
+    enabled: ${FLYWAY_ENABLED:false}
+    baseline-on-migrate: true
+
+grpc:
+  server:
+    port: 9091   # internal gRPC (notification-service -> user-service)
 
 eureka:
   client:
@@ -28,6 +35,15 @@ eureka:
       defaultZone: http://eureka-server:8761/eureka/
   instance:
     prefer-ip-address: true
+    metadata-map:
+      "gRPC.port": 9091
+
+keycloak:
+  url: ${KEYCLOAK_URL:http://keycloak:8080}
+  realm: ${KEYCLOAK_REALM:ecommerce}
+  admin-username: ${KEYCLOAK_ADMIN_USERNAME:admin}
+  admin-password: ${KEYCLOAK_ADMIN_PASSWORD:admin}
+  client-id: ${KEYCLOAK_CLIENT_ID:ecommerce-app}
 
 management:
   endpoints:
