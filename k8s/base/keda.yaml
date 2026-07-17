@@ -1,0 +1,54 @@
+# Event-driven autoscaling (v0.1.11) for the async Kafka consumers. CPU HPAs (hpa.yaml) can't see
+# consumer lag — a traffic spike backs up ecommerce.order-events while CPU stays flat. KEDA scales on
+# consumer-group lag (plus CPU as a floor). These two services are therefore driven by KEDA, NOT the
+# CPU HPAs in hpa.yaml (a Deployment must have only one autoscaler).
+#
+# PREREQ: the KEDA operator + CRDs must be installed in the cluster, e.g.
+#   helm repo add kedacore https://kedacore.github.io/charts && helm install keda kedacore/keda -n keda --create-namespace
+# Without the CRDs, `kubectl apply -k` will error on these ScaledObjects (expected).
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: notification-service
+spec:
+  scaleTargetRef:
+    name: notification-service
+  minReplicaCount: 1
+  maxReplicaCount: 6
+  cooldownPeriod: 120          # wait 2m of no load before scaling back down
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka.ecommerce.svc.cluster.local:9092
+        consumerGroup: notification
+        topic: ecommerce.order-events
+        lagThreshold: "50"     # ~1 replica per 50 lagging messages
+        offsetResetPolicy: latest
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "70"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: recommendation-service
+spec:
+  scaleTargetRef:
+    name: recommendation-service
+  minReplicaCount: 1
+  maxReplicaCount: 6
+  cooldownPeriod: 120
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka.ecommerce.svc.cluster.local:9092
+        consumerGroup: recommendation
+        topic: ecommerce.order-events
+        lagThreshold: "50"
+        offsetResetPolicy: latest
+    - type: cpu
+      metricType: Utilization
+      metadata:
+        value: "70"
