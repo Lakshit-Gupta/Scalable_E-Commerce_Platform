@@ -23,3 +23,41 @@ export function initChatwoot(baseUrl, websiteToken) {
   };
   s.parentNode.insertBefore(g, s);
 }
+
+/**
+ * Identify the logged-in visitor to Chatwoot (v0.1.2). `identity` carries the server-computed
+ * `identifier_hash` (HMAC), so Chatwoot trusts the identifier. No-op without an identity (anonymous
+ * chat) or outside the browser. Waits for the widget to be ready if the SDK hasn't finished loading.
+ */
+export function identifyChatwootUser(identity) {
+  if (typeof window === 'undefined' || !identity) {
+    return;
+  }
+  const apply = () => {
+    try {
+      window.$chatwoot.setUser(identity.identifier, {
+        name: identity.name,
+        email: identity.email,
+        identifier_hash: identity.identifier_hash
+      });
+    } catch {
+      /* widget not available — ignore */
+    }
+  };
+  if (window.$chatwoot) {
+    apply();
+  } else {
+    window.addEventListener('chatwoot:ready', apply, { once: true });
+  }
+}
+
+/** Clear the Chatwoot session on logout (v0.1.2) so the next visitor starts anonymous. */
+export function resetChatwootUser() {
+  if (typeof window !== 'undefined' && window.$chatwoot) {
+    try {
+      window.$chatwoot.reset();
+    } catch {
+      /* ignore */
+    }
+  }
+}
