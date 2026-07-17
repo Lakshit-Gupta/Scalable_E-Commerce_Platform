@@ -64,13 +64,18 @@ export const actions = {
       return fail(400, { error: 'Your cart is empty.' });
     }
 
+    const orderBody = JSON.stringify({
+      totalAmount: total,
+      items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, price: i.price ?? 0 }))
+    });
+    // Deterministic key per cart contents — a double-submit of the same cart dedupes to one order.
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(orderBody));
+    const idempotencyKey = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+
     const orderRes = await gatewayFetch(fetch, '/api/orders', token, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        totalAmount: total,
-        items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, price: i.price ?? 0 }))
-      })
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+      body: orderBody
     });
     if (!orderRes.ok) {
       return fail(502, { error: 'Could not place the order — please try again.' });

@@ -1,7 +1,9 @@
 package com.ecommerce.order.service;
 
+import com.ecommerce.order.model.IdempotencyKey;
 import com.ecommerce.order.model.Order;
 import com.ecommerce.order.model.OutboxEvent;
+import com.ecommerce.order.repository.IdempotencyKeyRepository;
 import com.ecommerce.order.repository.OrderRepository;
 import com.ecommerce.order.repository.OutboxRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -30,7 +32,20 @@ public class OrderConfirmationService {
 
     private final OrderRepository orderRepository;
     private final OutboxRepository outboxRepository;
+    private final IdempotencyKeyRepository idempotencyKeyRepository;
     private final ObjectMapper objectMapper;
+
+    // Persist the PENDING order shell and (if supplied) its idempotency key in ONE transaction, so a
+    // key never maps to a missing order. saveAndFlush forces the PK constraint check now: a duplicate
+    // key throws DataIntegrityViolationException, which OrderService catches to return the first order.
+    @Transactional
+    public void createPending(Order order, String idempotencyKey) {
+        if (idempotencyKey != null && !idempotencyKey.isBlank()) {
+            idempotencyKeyRepository.saveAndFlush(
+                new IdempotencyKey(idempotencyKey, order.getId(), Instant.now()));
+        }
+        orderRepository.save(order);
+    }
 
     @Transactional
     public void confirmAndStage(Order order) {
