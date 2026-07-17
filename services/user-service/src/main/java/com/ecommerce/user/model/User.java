@@ -21,15 +21,21 @@ import java.util.UUID;
 public class User {
 
     @Id
-    private UUID id;   // UUID public id (avoids sequential-id enumeration)
+    private UUID id;   // local profile UUID
+
+    @Column(unique = true)
+    private String keycloakId;   // Keycloak subject (sub) — used for X-User-Id lookups
 
     @Column(nullable = false, unique = true)
     private String email;
 
-    @Column(nullable = false)
-    private String passwordHash;
+    @Column(nullable = true)
+    private String passwordHash;   // null for Keycloak-backed users
 
     private String role;   // CUSTOMER / ADMIN
+
+    @Column(nullable = true)
+    private String phoneNumber;   // E.164 phone for SMS notifications (v0.1.3); nullable
 
     private Instant createdAt;
 }
