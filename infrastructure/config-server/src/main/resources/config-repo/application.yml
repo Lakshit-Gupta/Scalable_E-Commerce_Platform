@@ -1,18 +1,47 @@
 # Shared config served by Config Server to every service that does
 # `spring.config.import: optional:configserver:...`. Services are also
 # self-sufficient locally; this demonstrates centralized override + /actuator/refresh.
+
+# Vault-backed secrets (v0.1.13). optional:// so a missing/unreachable Vault never blocks boot — env
+# vars remain the fallback (env wins in dev; drop the plaintext env in prod and Vault fills the same
+# keys, e.g. DB_PASSWORD, from secret/application). Dev auth = root token; use AppRole / Kubernetes auth
+# in prod, not a static token.
+spring:
+  config:
+    import: optional:vault://
+  # Hikari default (10 conns/pod) overruns Postgres max_connections once HPAs scale out
+  # (~16 DB-using pods; PgBouncer session mode can't multiplex persistent app pools) — newly
+  # scaled pods then crash at boot, starved of connections. 5/pod stays inside the budget;
+  # virtual threads + short transactions don't need more. Override per-env via DB_POOL_MAX.
+  datasource:
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:5}
+      minimum-idle: ${DB_POOL_MIN_IDLE:1}
+  cloud:
+    vault:
+      enabled: ${VAULT_ENABLED:true}
+      uri: ${VAULT_URI:http://vault:8200}
+      authentication: TOKEN
+      token: ${VAULT_TOKEN:root}
+      fail-fast: false
+      kv:
+        enabled: true
+        backend: secret
+        default-context: application   # reads secret/application → shared across all services
+
 management:
   endpoints:
     web:
       exposure:
         include: health,info,prometheus,refresh
-  # Distributed tracing (v0.0.7): export spans via OTLP to Jaeger. Sample everything in dev.
+  # Distributed tracing (v0.0.7): export spans via OTLP. Sample everything in dev.
+  # v0.1.5: default endpoint is the OpenTelemetry Collector, which fans traces to Tempo + Jaeger.
   tracing:
     sampling:
       probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
   otlp:
     tracing:
-      endpoint: ${OTLP_TRACING_ENDPOINT:http://jaeger:4318/v1/traces}
+      endpoint: ${OTLP_TRACING_ENDPOINT:http://otel-collector:4318/v1/traces}
 info:
   platform: scalable-ecommerce
   managedBy: config-server

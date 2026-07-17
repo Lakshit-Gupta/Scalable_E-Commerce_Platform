@@ -1,0 +1,29 @@
+# OpenTelemetry Collector (v0.1.5): single OTLP ingest point for all services. Fans traces out to
+# both Tempo (Grafana-native trace store) and Jaeger (existing UI) so neither backend is lost.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch: {}
+
+exporters:
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp/tempo, otlp/jaeger]
