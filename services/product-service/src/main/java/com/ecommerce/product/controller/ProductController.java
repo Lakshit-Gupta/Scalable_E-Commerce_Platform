@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -24,9 +25,23 @@ public class ProductController {
 
     // ProductNotFoundException (404) renders as RFC-7807 via common's GlobalExceptionHandler.
 
+    /** Paginated catalog listing from Postgres. */
+    @GetMapping
+    public List<Product> list(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size) {
+        return productService.listAll(page, size);
+    }
+
     @GetMapping("/{id}")
     public Product get(@PathVariable UUID id) {
         return productService.getProduct(id);
+    }
+
+    /** Rebuild the Elasticsearch index from Postgres (admin/demo helper; requires a bearer token). */
+    @PostMapping("/reindex")
+    public Map<String, Object> reindex() {
+        return Map.of("reindexed", productService.reindexAll());
     }
 
     @PostMapping

@@ -7,6 +7,7 @@ import org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoCo
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.data.elasticsearch.repository.config.EnableElasticsearchRepositories;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 // We use RedisTemplate + cache (not Spring Data Redis repos) and imperative ES (not reactive),
 // so disable those repo auto-scans to remove cross-store "could not identify store" warnings.
@@ -15,6 +16,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
     ReactiveElasticsearchRepositoriesAutoConfiguration.class
 })
 @EnableCaching
+@EnableScheduling   // reservation TTL sweeper
 @EnableJpaRepositories(basePackages = "com.ecommerce.product.repository.jpa")
 @EnableElasticsearchRepositories(basePackages = "com.ecommerce.product.repository.search")
 public class ProductServiceApplication {

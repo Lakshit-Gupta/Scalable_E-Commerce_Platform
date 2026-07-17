@@ -32,6 +32,7 @@ public class SecurityConfig {
         "/actuator/**",
         "/api/auth/**",          // legacy user-service auth endpoints
         "/api/payments/webhooks/**",  // Stripe webhooks — verified by signature, not JWT (v0.0.14)
+        "/api/support/chatwoot/**",   // Chatwoot inbound webhooks — verified by shared token (v0.1.2)
         "/aggregate/**",         // aggregated Swagger api-docs
         "/swagger-ui.html",
         "/swagger-ui/**",

@@ -45,6 +45,9 @@ public class ProductDocument {
     @Field(type = FieldType.Float)
     private float averageRating;
 
+    @Field(type = FieldType.Long)
+    private long orderCount;   // incremented by order-event consumer; used for popularity boosting
+
     public static ProductDocument from(Product product) {
         return ProductDocument.builder()
             .id(product.getId().toString())

@@ -11,12 +11,14 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.CachePut;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Duration;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -42,13 +44,32 @@ public class ProductService {
             .orElseThrow(() -> new ResourceNotFoundException("Product", productId));
     }
 
+    /** Paginated catalog listing straight from Postgres (the source of truth). */
+    public List<Product> listAll(int page, int size) {
+        return productRepository.findAll(PageRequest.of(page, size)).getContent();
+    }
+
+    /** Re-mirror every Postgres product into the Elasticsearch index. Returns the count reindexed. */
+    public int reindexAll() {
+        List<Product> all = productRepository.findAll();
+        esRepository.saveAll(all.stream().map(ProductDocument::from).toList());
+        return all.size();
+    }
+
+    /** Partial update: null fields are left unchanged. Re-indexes ES so search stays in sync. */
     @CacheEvict(value = "products", key = "#productId")
     public Product updateProduct(UUID productId, UpdateProductRequest req) {
         Product product = productRepository.findById(productId)
             .orElseThrow(() -> new ResourceNotFoundException("Product", productId));
-        product.setName(req.getName());
-        product.setPrice(req.getPrice());
-        return productRepository.save(product);
+        if (req.getName() != null) product.setName(req.getName());
+        if (req.getDescription() != null) product.setDescription(req.getDescription());
+        if (req.getCategory() != null) product.setCategory(req.getCategory());
+        if (req.getBrand() != null) product.setBrand(req.getBrand());
+        if (req.getPrice() != null) product.setPrice(req.getPrice());
+        if (req.getStockQuantity() != null) product.setStockQuantity(req.getStockQuantity());
+        product = productRepository.save(product);
+        esRepository.save(ProductDocument.from(product)); // create indexes ES; update must too
+        return product;
     }
     
     @CachePut(value = "products", key = "#result.id")
@@ -91,6 +112,10 @@ public class ProductService {
     @Data
     public static class UpdateProductRequest {
         private String name;
+        private String description;
+        private String category;
+        private String brand;
         private BigDecimal price;
+        private Integer stockQuantity;   // nullable: absent field = keep current (was silently dropped)
     }
 }

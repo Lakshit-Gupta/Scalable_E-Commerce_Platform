@@ -80,6 +80,14 @@ spring:
           filters:
             - StripPrefix=1
 
+        # Chatwoot inbound webhook (v0.1.2): public, authenticity via shared X-Chatwoot-Token (no JWT).
+        - id: chatwoot-webhooks
+          uri: lb://NOTIFICATION-SERVICE
+          predicates:
+            - Path=/api/support/chatwoot/**
+          filters:
+            - StripPrefix=1
+
         # --- Aggregated API docs (v0.0.4): public, no JWT. /aggregate/<svc>/v3/api-docs -> svc /v3/api-docs ---
         - id: user-service-docs
           uri: lb://USER-SERVICE
@@ -136,7 +144,8 @@ management:
       probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
   otlp:
     tracing:
-      endpoint: ${OTLP_TRACING_ENDPOINT:http://jaeger:4318/v1/traces}
+      # v0.1.5: OTLP → OpenTelemetry Collector (fans to Tempo + Jaeger).
+      endpoint: ${OTLP_TRACING_ENDPOINT:http://otel-collector:4318/v1/traces}
 
 # Aggregated Swagger UI (v0.0.4): one UI at the edge, dropdown per service.
 # Each url resolves through the public /aggregate/<svc>/v3/api-docs routes above.
