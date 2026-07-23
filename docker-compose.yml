@@ -16,6 +16,33 @@ volumes:
   minio-data:
   tempo-data:
   loki-data:
+  chatwoot-postgres-data:
+
+# Dev: Vault off so services use plaintext env (env-fallback design; "env wins in dev"). The shared
+# config-repo serves `spring.config.import: vault://` above the token line, so remote clients hit the
+# import before the token binds → TOKEN-auth boot crash. Binding this via container env (highest
+# precedence, available at bootstrap) skips the import cleanly. Drop it in prod so Vault fills secrets.
+x-vault-off: &vault-off
+  SPRING_CLOUD_VAULT_ENABLED: "false"
+
+# Shared Chatwoot env (v0.2.2): self-hosted live chat. Own pgvector Postgres; reuses the stack Redis.
+x-chatwoot-env: &chatwoot-env
+  INSTALLATION_ENV: docker
+  RAILS_ENV: production
+  NODE_ENV: production
+  RAILS_LOG_TO_STDOUT: "true"
+  SECRET_KEY_BASE: ${CHATWOOT_SECRET_KEY_BASE:?set CHATWOOT_SECRET_KEY_BASE in .env}
+  FRONTEND_URL: ${PUBLIC_CHATWOOT_BASE_URL:-http://localhost:3003}
+  DEFAULT_LOCALE: en
+  POSTGRES_HOST: chatwoot-postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_USERNAME: chatwoot
+  POSTGRES_PASSWORD: ${CHATWOOT_DB_PASSWORD:?set CHATWOOT_DB_PASSWORD in .env}
+  POSTGRES_DATABASE: chatwoot
+  REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD}
+  # Dev: allow creating the first super-admin via the onboarding wizard. Set false once set up.
+  ENABLE_ACCOUNT_SIGNUP: ${CHATWOOT_ENABLE_SIGNUP:-true}
 
 services:
 
@@ -31,7 +58,8 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - ./db/init:/docker-entrypoint-initdb.d   # creates users_db/products_db/orders_db/payments_db
     ports:
-      - "5432:5432"
+      # Host publish only for local psql; in-network is always postgres:5432. Override to dodge host clashes.
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     networks:
       ecommerce-network:
         # Debezium connects to `pg-rw` (the CNPG primary service name in k8s); this alias makes the
@@ -50,7 +78,8 @@ services:
     volumes:
       - redis-data:/data
     ports:
-      - "6379:6379"
+      # Host publish only (in-network access is always redis:6379). Override to avoid host conflicts.
+      - "${REDIS_HOST_PORT:-6379}:6379"
     networks:
       - ecommerce-network
     healthcheck:
@@ -226,6 +255,7 @@ services:
       keycloak:
         condition: service_healthy
     environment:
+      <<: *vault-off
       DB_PASSWORD: ${DB_PASSWORD}
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_REALM: ecommerce
@@ -255,6 +285,7 @@ services:
       eureka-server:
         condition: service_started
     environment:
+      <<: *vault-off
       DB_PASSWORD: ${DB_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
@@ -271,6 +302,7 @@ services:
       eureka-server:
         condition: service_started
     environment:
+      <<: *vault-off
       REDIS_PASSWORD: ${REDIS_PASSWORD}
     networks:
       - ecommerce-network
@@ -413,6 +445,7 @@ services:
       eureka-server:
         condition: service_started
     environment:
+      <<: *vault-off
       DB_PASSWORD: ${DB_PASSWORD}
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       OUTBOX_RELAY_ENABLED: "false"   # Debezium CDC handles outbox publishing
@@ -429,6 +462,7 @@ services:
       eureka-server:
         condition: service_started
     environment:
+      <<: *vault-off
       DB_PASSWORD: ${DB_PASSWORD}
       # Provider selection (v0.0.15): stripe (default) | razorpay | stub. Falls back to stub if keys absent.
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-stripe}
@@ -451,6 +485,7 @@ services:
       eureka-server:
         condition: service_started
     environment:
+      <<: *vault-off
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
       # Transactional email (v0.0.8). Unset -> notification-service logs instead of sending.
       RESEND_API_KEY: ${RESEND_API_KEY:-}
@@ -482,8 +517,78 @@ services:
       eureka-server:
         condition: service_started
     environment:
+      <<: *vault-off
       DB_PASSWORD: ${DB_PASSWORD}
       REDIS_PASSWORD: ${REDIS_PASSWORD}
+    networks:
+      - ecommerce-network
+
+  # ==================== Support (Chatwoot live chat) ====================
+  # Self-hosted Chatwoot (v0.2.2). Isolated Postgres (needs pgvector); reuses the stack Redis.
+  # First boot: open http://localhost:3003 → onboarding creates the super-admin + account, then
+  # add a "Website" inbox and paste its token into PUBLIC_CHATWOOT_WEBSITE_TOKEN, restart storefront.
+
+  chatwoot-postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: chatwoot
+      POSTGRES_USER: chatwoot
+      POSTGRES_PASSWORD: ${CHATWOOT_DB_PASSWORD:?set CHATWOOT_DB_PASSWORD in .env}
+    volumes:
+      - chatwoot-postgres-data:/var/lib/postgresql/data
+    networks:
+      - ecommerce-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatwoot"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # One-off DB prepare (create+schema+seed on fresh, migrate on existing). rails.sh entrypoint
+  # only waits for the DB — it does not migrate — so web/sidekiq gate on this completing.
+  chatwoot-init:
+    image: chatwoot/chatwoot:v3.16.0
+    depends_on:
+      chatwoot-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment: *chatwoot-env
+    entrypoint: ["docker/entrypoints/rails.sh"]
+    command: ["bundle", "exec", "rails", "db:chatwoot_prepare"]
+    networks:
+      - ecommerce-network
+    restart: on-failure
+
+  chatwoot-web:
+    image: chatwoot/chatwoot:v3.16.0
+    depends_on:
+      chatwoot-init:
+        condition: service_completed_successfully
+    environment: *chatwoot-env
+    entrypoint: ["docker/entrypoints/rails.sh"]
+    command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
+    ports:
+      - "3003:3000"
+    networks:
+      - ecommerce-network
+    healthcheck:
+      # / 302-redirects to onboarding; /api returns 200 directly once Rails is up.
+      # 127.0.0.1 (not localhost): container localhost resolves ::1 first, but Rails binds IPv4.
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/api || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  chatwoot-sidekiq:
+    image: chatwoot/chatwoot:v3.16.0
+    depends_on:
+      chatwoot-init:
+        condition: service_completed_successfully
+    environment: *chatwoot-env
+    entrypoint: ["docker/entrypoints/rails.sh"]
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
     networks:
       - ecommerce-network
 
@@ -584,7 +689,7 @@ services:
       cms:
         condition: service_started
     ports:
-      - "3000:3000"
+      - "${STOREFRONT_HOST_PORT:-3000}:3000"
     environment:
       GATEWAY_URL: http://api-gateway:8080   # server-to-server (BFF); browser never hits the gateway directly
       # Headless CMS (v0.1.1): storefront BFF reads content (blog, pages, product enrichment) server-to-server.
